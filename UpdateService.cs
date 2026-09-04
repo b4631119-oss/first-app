@@ -4,9 +4,9 @@ using System.IO;
 using System.Net.Http;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Text.Json;
 
 namespace MyFirstApp;
 
@@ -23,27 +23,28 @@ public static class UpdateService
 
     private static readonly HttpClient Http = CreateHttpClient();
 
-   public static Version CurrentVersion
-{
-    get
+    public static Version CurrentVersion
     {
-        string? versionText =
-            Assembly.GetExecutingAssembly()
-                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
-                ?.InformationalVersion;
-
-        if (!string.IsNullOrWhiteSpace(versionText))
+        get
         {
-            string cleanVersion =
-                versionText.Split('+')[0];
+            string? versionText =
+                Assembly.GetExecutingAssembly()
+                    .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                    ?.InformationalVersion;
 
-            if (Version.TryParse(cleanVersion, out Version? version))
-                return version;
+            if (!string.IsNullOrWhiteSpace(versionText))
+            {
+                string cleanVersion = versionText.Split('+')[0];
+
+                if (Version.TryParse(cleanVersion, out Version? version))
+                {
+                    return version;
+                }
+            }
+
+            return new Version(1, 0, 0);
         }
-
-        return new Version(1, 0, 0);
     }
-}
 
     public static async Task<UpdateInfo?> CheckForUpdateAsync(
         CancellationToken cancellationToken = default)
@@ -74,16 +75,22 @@ public static class UpdateService
 
         string versionText = tagName.TrimStart('v');
 
-        if (!Version.TryParse(versionText, out Version? latestVersion))
+        if (!Version.TryParse(
+                versionText,
+                out Version? latestVersion))
         {
             throw new InvalidOperationException(
                 $"Invalid GitHub release version: {versionText}");
         }
 
         if (latestVersion <= CurrentVersion)
+        {
             return null;
+        }
 
-        if (!root.TryGetProperty("assets", out JsonElement assets))
+        if (!root.TryGetProperty(
+                "assets",
+                out JsonElement assets))
         {
             throw new InvalidOperationException(
                 "GitHub release assets are missing.");
@@ -92,7 +99,8 @@ public static class UpdateService
         foreach (JsonElement asset in assets.EnumerateArray())
         {
             string name =
-                asset.GetProperty("name").GetString() ?? string.Empty;
+                asset.GetProperty("name").GetString()
+                ?? string.Empty;
 
             if (!name.EndsWith(
                     ".exe",
@@ -162,6 +170,9 @@ public static class UpdateService
             HttpMethod.Get,
             update.DownloadUrl);
 
+        request.Headers.Accept.ParseAdd(
+            "application/octet-stream");
+
         using HttpResponseMessage response =
             await Http.SendAsync(
                 request,
@@ -191,13 +202,14 @@ public static class UpdateService
 
         while (true)
         {
-            int read =
-                await input.ReadAsync(
-                    buffer,
-                    cancellationToken);
+            int read = await input.ReadAsync(
+                buffer,
+                cancellationToken);
 
             if (read == 0)
+            {
                 break;
+            }
 
             await output.WriteAsync(
                 buffer.AsMemory(0, read),
@@ -231,9 +243,10 @@ public static class UpdateService
                 Convert.ToHexString(hash).ToLowerInvariant();
         }
 
-        if (!CryptographicOperations.FixedTimeEquals(
-                Convert.FromHexString(actualSha256),
-                Convert.FromHexString(update.Sha256)))
+        if (!string.Equals(
+                actualSha256,
+                update.Sha256,
+                StringComparison.OrdinalIgnoreCase))
         {
             File.Delete(destinationPath);
 
@@ -253,6 +266,13 @@ public static class UpdateService
         {
             throw new PlatformNotSupportedException(
                 "Windows installer updates are only supported on Windows.");
+        }
+
+        if (!File.Exists(installerPath))
+        {
+            throw new FileNotFoundException(
+                "Downloaded installer was not found.",
+                installerPath);
         }
 
         Process.Start(new ProcessStartInfo
