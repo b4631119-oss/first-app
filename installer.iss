@@ -1,5 +1,7 @@
 #define MyAppName "My First App"
+#ifndef MyAppVersion
 #define MyAppVersion "1.0.0"
+#endif
 #define MyAppPublisher "justnpm"
 #define MyAppExeName "MyFirstApp.exe"
 
