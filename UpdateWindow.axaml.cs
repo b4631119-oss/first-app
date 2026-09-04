@@ -1,6 +1,5 @@
 using System;
 using System.Threading;
-using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 
@@ -55,11 +54,17 @@ public partial class UpdateWindow : Window
                 ProgressBar.Value = value;
             });
 
+            VersionText.Text =
+                $"Скачивание обновления {_update.Version}...";
+
             string installerPath =
                 await UpdateService.DownloadUpdateAsync(
                     _update,
                     progress,
                     _downloadCancellation.Token);
+
+            VersionText.Text =
+                "Обновление скачано.\nЗапускаю установщик...";
 
             UpdateService.LaunchInstallerAndExit(installerPath);
         }
@@ -68,16 +73,20 @@ public partial class UpdateWindow : Window
             UpdateButton.IsEnabled = true;
             LaterButton.IsEnabled = true;
             ProgressBar.IsVisible = false;
+
+            VersionText.Text =
+                "Обновление отменено.";
         }
-        catch
+        catch (Exception exception)
         {
             UpdateButton.IsEnabled = true;
             LaterButton.IsEnabled = true;
             ProgressBar.IsVisible = false;
 
             VersionText.Text =
-                "Не удалось скачать обновление.\n\n" +
-                "Попробуйте позже.";
+                $"Ошибка обновления:\n\n" +
+                $"{exception.GetType().Name}\n\n" +
+                $"{exception.Message}";
         }
     }
 
