@@ -13,6 +13,8 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
+        VersionText.Text = $"v{UpdateService.CurrentVersion}";
+
         AddHandler(Button.ClickEvent, Button_Click);
     }
 
@@ -71,7 +73,7 @@ public partial class MainWindow : Window
         }
 
         // Цифры
-        if (char.IsDigit(value[0]))
+        if (value.Length > 0 && char.IsDigit(value[0]))
         {
             currentNumber += value;
             Result.Text = currentNumber;
