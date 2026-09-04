@@ -48,9 +48,10 @@ public partial class App : Application
 
             await updateWindow.ShowDialog(owner);
         }
-        catch
+        catch (Exception ex)
         {
             // Обновление не должно ломать запуск приложения.
+            System.Diagnostics.Trace.WriteLine($"Update check failed: {ex}");
         }
     }
 }

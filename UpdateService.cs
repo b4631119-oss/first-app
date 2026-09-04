@@ -208,10 +208,10 @@ public static class UpdateService
             if (response.RequestMessage?.RequestUri != null &&
                 !response.RequestMessage.RequestUri.Equals(new Uri(update.DownloadUrl)))
             {
-                var finalUrl = response.RequestMessage.RequestUri.ToString();
-                if (!finalUrl.Contains("github.com") && !finalUrl.Contains("githubassets.com"))
+                if (!IsTrustedDownloadHost(response.RequestMessage.RequestUri.Host))
                 {
-                    throw new InvalidOperationException($"Download redirected to unexpected domain: {finalUrl}");
+                    throw new InvalidOperationException(
+                        $"Download redirected to unexpected domain: {response.RequestMessage.RequestUri}");
                 }
             }
 
@@ -219,39 +219,43 @@ public static class UpdateService
 
             await using var input = await response.Content.ReadAsStreamAsync(cancellationToken);
 
-            await using var output = new FileStream(
+            long totalRead = 0;
+
+            await using (var output = new FileStream(
                 destinationPath,
                 FileMode.Create,
                 FileAccess.Write,
                 FileShare.None,
                 bufferSize: 128 * 1024,
-                options: FileOptions.Asynchronous | FileOptions.SequentialScan);
-
-            var buffer = new byte[128 * 1024];
-            long totalRead = 0;
-
-            while (true)
+                options: FileOptions.Asynchronous | FileOptions.SequentialScan))
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                var buffer = new byte[128 * 1024];
 
-                var read = await input.ReadAsync(buffer, cancellationToken);
-
-                if (read == 0)
+                while (true)
                 {
-                    break;
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    var read = await input.ReadAsync(buffer, cancellationToken);
+
+                    if (read == 0)
+                    {
+                        break;
+                    }
+
+                    await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+
+                    totalRead += read;
+
+                    if (totalBytes > 0)
+                    {
+                        progress?.Report(Math.Clamp((double)totalRead / totalBytes.Value, 0, 1));
+                    }
                 }
 
-                await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
-
-                totalRead += read;
-
-                if (totalBytes > 0)
-                {
-                    progress?.Report(Math.Clamp((double)totalRead / totalBytes.Value, 0, 1));
-                }
+                await output.FlushAsync(cancellationToken);
             }
-
-            await output.FlushAsync(cancellationToken);
+            // The output stream is disposed above, so the file handle is released
+            // before SHA-256 verification opens the file again.
 
             if (!File.Exists(destinationPath))
             {
@@ -368,6 +372,14 @@ public static class UpdateService
         await using var stream = File.OpenRead(filePath);
         var hash = await SHA256.HashDataAsync(stream, cancellationToken);
         return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    private static bool IsTrustedDownloadHost(string host)
+    {
+        return host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
+            || host.EndsWith(".github.com", StringComparison.OrdinalIgnoreCase)
+            || host.EndsWith("githubusercontent.com", StringComparison.OrdinalIgnoreCase)
+            || host.EndsWith("githubassets.com", StringComparison.OrdinalIgnoreCase);
     }
 
     private static HttpClient CreateHttpClient()
