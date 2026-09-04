@@ -82,7 +82,7 @@ jobs:
       - name: Install Inno Setup
         shell: pwsh
         run: |
-          choco install innosetup --yes --no-progress --version 6.2.2
+          choco install innosetup --yes --no-progress
 
       - name: Build Installer
         shell: pwsh
