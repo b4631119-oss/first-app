@@ -23,9 +23,27 @@ public static class UpdateService
 
     private static readonly HttpClient Http = CreateHttpClient();
 
-    public static Version CurrentVersion =>
-        Assembly.GetExecutingAssembly().GetName().Version
-        ?? new Version(1, 0, 0);
+   public static Version CurrentVersion
+{
+    get
+    {
+        string? versionText =
+            Assembly.GetExecutingAssembly()
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                ?.InformationalVersion;
+
+        if (!string.IsNullOrWhiteSpace(versionText))
+        {
+            string cleanVersion =
+                versionText.Split('+')[0];
+
+            if (Version.TryParse(cleanVersion, out Version? version))
+                return version;
+        }
+
+        return new Version(1, 0, 0);
+    }
+}
 
     public static async Task<UpdateInfo?> CheckForUpdateAsync(
         CancellationToken cancellationToken = default)
