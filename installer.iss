@@ -23,8 +23,6 @@ DefaultGroupName={#MyAppName}
 OutputDir=..
 OutputBaseFilename=MyFirstApp-Setup-{#MyAppVersion}
 
-SetupIconFile=..\installer\app.ico
-
 Compression=lzma/ultra64
 SolidCompression=yes
 WizardStyle=modern
@@ -47,7 +45,7 @@ Name: "desktopicon"; Description: "Create a &desktop icon"; GroupDescription: "A
 Name: "quicklaunchicon"; Description: "Create a &Quick Launch icon"; GroupDescription: "Additional icons:"; Flags: unchecked; OnlyBelowVersion: 0,6.1
 
 [Files]
-Source: "publish\win-x64\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion; Type: full
+Source: "publish/win-x64/*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion; Type: full
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
@@ -59,19 +57,3 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: no
 
 [CloseApplications]
 CloseApplications=force
-
-[Code]
-function InitializeSetup(): Boolean;
-begin
-  Result := True;
-end;
-
-function NextButtonClick(CurPageID: Integer): Boolean;
-begin
-  Result := True;
-end;
-
-function ShouldSkipPage(PageID: Integer): Boolean;
-begin
-  Result := False;
-end;

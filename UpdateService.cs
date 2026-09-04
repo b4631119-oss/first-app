@@ -276,6 +276,11 @@ public static class UpdateService
                         $"SHA-256 verification failed. Expected: {update.ExpectedSha256}, Got: {actualSha256}");
                 }
             }
+            else
+            {
+                var actualSha256 = await ComputeSha256Async(destinationPath, cancellationToken);
+                Console.WriteLine($"[Updater] Downloaded installer SHA-256 (no reference to verify): {actualSha256}");
+            }
 
             progress?.Report(1.0);
 

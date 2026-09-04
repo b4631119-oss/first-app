@@ -79,7 +79,15 @@ jobs:
           Write-Host "Published EXE FileVersion: $($versionInfo.FileVersion)"
           Write-Host "Published EXE ProductVersion: $($versionInfo.ProductVersion)"
 
+      - name: Cache Inno Setup
+        uses: actions/cache@v4
+        id: innosetup-cache
+        with:
+          path: "C:\Program Files (x86)\Inno Setup 6"
+          key: innosetup-6.2.2
+
       - name: Install Inno Setup
+        if: steps.innosetup-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           choco install innosetup --yes --no-progress --version 6.2.2
@@ -94,7 +102,7 @@ jobs:
       - name: Verify installer
         shell: pwsh
         run: |
-          $installer = "MyFirstApp-Setup-${{ steps.version.outputs.version }}.exe"
+          $installer = "../MyFirstApp-Setup-${{ steps.version.outputs.version }}.exe"
           if (-not (Test-Path $installer)) {
             Write-Error "Installer not found at $installer"
             exit 1
@@ -107,18 +115,18 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: installer-${{ steps.version.outputs.version }}
-          path: MyFirstApp-Setup-${{ steps.version.outputs.version }}.exe
+          path: ../MyFirstApp-Setup-${{ steps.version.outputs.version }}.exe
           retention-days: 30
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
           name: My First App v${{ steps.version.outputs.version }}
           tag_name: v${{ steps.version.outputs.version }}
           generate_release_notes: true
           files: |
-            MyFirstApp-Setup-${{ steps.version.outputs.version }}.exe
+            ../MyFirstApp-Setup-${{ steps.version.outputs.version }}.exe
           body: |
             ## My First App v${{ steps.version.outputs.version }}
 
