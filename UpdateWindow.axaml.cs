@@ -27,16 +27,12 @@ public partial class UpdateWindow : Window
             $"Новая версия: {_update.Version}";
     }
 
-    private void LaterButton_Click(
-        object? sender,
-        RoutedEventArgs e)
+    private void LaterButton_Click(object? sender, RoutedEventArgs e)
     {
         Close();
     }
 
-    private async void UpdateButton_Click(
-        object? sender,
-        RoutedEventArgs e)
+    private async void UpdateButton_Click(object? sender, RoutedEventArgs e)
     {
         if (_update is null)
             return;
@@ -49,45 +45,55 @@ public partial class UpdateWindow : Window
 
         try
         {
-            Progress<double> progress = new(value =>
+            var progress = new Progress<double>(value =>
             {
                 ProgressBar.Value = value;
             });
 
-            VersionText.Text =
-                $"Скачивание обновления {_update.Version}...";
+            VersionText.Text = $"Скачивание обновления {_update.Version}...";
 
-            string installerPath =
-                await UpdateService.DownloadUpdateAsync(
-                    _update,
-                    progress,
-                    _downloadCancellation.Token);
+            var installerPath = await UpdateService.DownloadUpdateAsync(
+                _update,
+                progress,
+                _downloadCancellation.Token);
 
-            VersionText.Text =
-                "Обновление скачано.\nЗапускаю установщик...";
+            VersionText.Text = "Обновление скачано.\nЗапускаю установщик...";
 
             UpdateService.LaunchInstallerAndExit(installerPath);
         }
         catch (OperationCanceledException)
         {
-            UpdateButton.IsEnabled = true;
-            LaterButton.IsEnabled = true;
-            ProgressBar.IsVisible = false;
-
-            VersionText.Text =
-                "Обновление отменено.";
+            ResetUI();
+            VersionText.Text = "Обновление отменено.";
         }
-        catch (Exception exception)
+        catch (UpdateCheckException ex)
         {
-            UpdateButton.IsEnabled = true;
-            LaterButton.IsEnabled = true;
-            ProgressBar.IsVisible = false;
-
-            VersionText.Text =
-                $"Ошибка обновления:\n\n" +
-                $"{exception.GetType().Name}\n\n" +
-                $"{exception.Message}";
+            ResetUI();
+            ShowError("Ошибка проверки обновлений", ex.Message);
         }
+        catch (UpdateDownloadException ex)
+        {
+            ResetUI();
+            ShowError("Ошибка скачивания", ex.Message);
+        }
+        catch (Exception ex)
+        {
+            ResetUI();
+            ShowError("Неожиданная ошибка", $"{ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    private void ResetUI()
+    {
+        UpdateButton.IsEnabled = true;
+        LaterButton.IsEnabled = true;
+        ProgressBar.IsVisible = false;
+        ProgressBar.Value = 0;
+    }
+
+    private void ShowError(string title, string message)
+    {
+        VersionText.Text = $"{title}:\n\n{message}";
     }
 
     protected override void OnClosed(EventArgs e)

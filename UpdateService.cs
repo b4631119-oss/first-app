@@ -14,14 +14,15 @@ public sealed record UpdateInfo(
     Version Version,
     string DownloadUrl,
     string FileName,
-    string Sha256
+    string? ExpectedSha256
 );
 
 public static class UpdateService
 {
     private const string Repository = "b4631119-oss/first-app";
-
-    private static readonly HttpClient Http = CreateHttpClient();
+    private const string UserAgent = "MyFirstApp-Updater/1.0";
+    private static readonly TimeSpan HttpTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan DownloadTimeout = TimeSpan.FromMinutes(5);
 
     public static Version CurrentVersion
     {
@@ -49,106 +50,116 @@ public static class UpdateService
     public static async Task<UpdateInfo?> CheckForUpdateAsync(
         CancellationToken cancellationToken = default)
     {
-        using HttpRequestMessage request = new(
-            HttpMethod.Get,
-            $"https://api.github.com/repos/{Repository}/releases/latest");
+        using var httpClient = CreateHttpClient();
 
-        using HttpResponseMessage response =
-            await Http.SendAsync(request, cancellationToken);
+        try
+        {
+            using var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                $"https://api.github.com/repos/{Repository}/releases/latest");
 
-        response.EnsureSuccessStatusCode();
+            using var response = await httpClient.SendAsync(
+                request,
+                HttpCompletionOption.ResponseHeadersRead,
+                cancellationToken);
 
-        await using Stream stream =
-            await response.Content.ReadAsStreamAsync(cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return null;
+            }
 
-        using JsonDocument document =
-            await JsonDocument.ParseAsync(
+            response.EnsureSuccessStatusCode();
+
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+
+            using var document = await JsonDocument.ParseAsync(
                 stream,
                 cancellationToken: cancellationToken);
 
-        JsonElement root = document.RootElement;
+            var root = document.RootElement;
 
-        string tagName =
-            root.GetProperty("tag_name").GetString()
-            ?? throw new InvalidOperationException(
-                "GitHub release tag is missing.");
+            if (root.TryGetProperty("draft", out var draftElement) && draftElement.GetBoolean())
+            {
+                return null;
+            }
 
-        string versionText = tagName.TrimStart('v');
+            if (root.TryGetProperty("prerelease", out var prereleaseElement) && prereleaseElement.GetBoolean())
+            {
+                return null;
+            }
 
-        if (!Version.TryParse(
-                versionText,
-                out Version? latestVersion))
-        {
-            throw new InvalidOperationException(
-                $"Invalid GitHub release version: {versionText}");
-        }
+            var tagName = root.GetProperty("tag_name").GetString()
+                ?? throw new InvalidOperationException("GitHub release tag is missing.");
 
-        if (latestVersion <= CurrentVersion)
-        {
+            var versionText = tagName.TrimStart('v');
+
+            if (!Version.TryParse(versionText, out var latestVersion))
+            {
+                throw new InvalidOperationException($"Invalid GitHub release version: {versionText}");
+            }
+
+            if (latestVersion <= CurrentVersion)
+            {
+                return null;
+            }
+
+            if (!root.TryGetProperty("assets", out var assets))
+            {
+                throw new InvalidOperationException("GitHub release assets are missing.");
+            }
+
+            foreach (var asset in assets.EnumerateArray())
+            {
+                var name = asset.GetProperty("name").GetString() ?? string.Empty;
+
+                if (!name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (!name.StartsWith("MyFirstApp-Setup-", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var downloadUrl = asset.GetProperty("browser_download_url").GetString()
+                    ?? throw new InvalidOperationException("Download URL is missing.");
+
+                string? sha256 = null;
+                if (asset.TryGetProperty("digest", out var digestElement))
+                {
+                    sha256 = digestElement.GetString();
+                    if (sha256?.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase) == true)
+                    {
+                        sha256 = sha256["sha256:".Length..];
+                    }
+                }
+
+                return new UpdateInfo(latestVersion, downloadUrl, name, sha256);
+            }
+
             return null;
         }
-
-        if (!root.TryGetProperty(
-                "assets",
-                out JsonElement assets))
+        catch (HttpRequestException ex)
         {
-            throw new InvalidOperationException(
-                "GitHub release assets are missing.");
+            throw new UpdateCheckException("Failed to connect to GitHub. Check your internet connection.", ex);
         }
-
-        foreach (JsonElement asset in assets.EnumerateArray())
+        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
         {
-            string name =
-                asset.GetProperty("name").GetString()
-                ?? string.Empty;
-
-            if (!name.EndsWith(
-                    ".exe",
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            if (!name.StartsWith(
-                    "MyFirstApp-Setup-",
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            string downloadUrl =
-                asset.GetProperty("browser_download_url").GetString()
-                ?? throw new InvalidOperationException(
-                    "Download URL is missing.");
-
-            if (!asset.TryGetProperty(
-                    "digest",
-                    out JsonElement digestElement))
-            {
-                throw new InvalidOperationException(
-                    "GitHub release does not contain a SHA-256 digest.");
-            }
-
-            string sha256 =
-                digestElement.GetString()
-                ?? throw new InvalidOperationException(
-                    "SHA-256 digest is missing.");
-
-            if (sha256.StartsWith(
-                    "sha256:",
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                sha256 = sha256["sha256:".Length..];
-            }
-
-            return new UpdateInfo(
-                latestVersion,
-                downloadUrl,
-                name,
-                sha256);
+            throw new UpdateCheckException("Update check timed out.", ex);
         }
-
-        return null;
+        catch (JsonException ex)
+        {
+            throw new UpdateCheckException("Failed to parse GitHub release data.", ex);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is not UpdateCheckException)
+        {
+            throw new UpdateCheckException($"Unexpected error checking for updates: {ex.Message}", ex);
+        }
     }
 
     public static async Task<string> DownloadUpdateAsync(
@@ -156,149 +167,229 @@ public static class UpdateService
         IProgress<double>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        string tempDirectory = Path.Combine(
+        var tempDirectory = Path.Combine(
             Path.GetTempPath(),
             "MyFirstApp",
             "Updates");
 
         Directory.CreateDirectory(tempDirectory);
 
-        string destinationPath =
-            Path.Combine(tempDirectory, update.FileName);
+        var destinationPath = Path.Combine(tempDirectory, update.FileName);
 
-        using HttpRequestMessage request = new(
-            HttpMethod.Get,
-            update.DownloadUrl);
+        if (File.Exists(destinationPath))
+        {
+            try
+            {
+                File.Delete(destinationPath);
+            }
+            catch
+            {
+                var newName = Path.Combine(tempDirectory, $"MyFirstApp-Setup-{Guid.NewGuid()}.exe");
+                File.Move(destinationPath, newName);
+                destinationPath = newName;
+            }
+        }
 
-        request.Headers.Accept.ParseAdd(
-            "application/octet-stream");
+        using var httpClient = CreateHttpClient();
+        httpClient.Timeout = DownloadTimeout;
 
-        using HttpResponseMessage response =
-            await Http.SendAsync(
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, update.DownloadUrl);
+            request.Headers.Accept.ParseAdd("application/octet-stream");
+
+            using var response = await httpClient.SendAsync(
                 request,
                 HttpCompletionOption.ResponseHeadersRead,
                 cancellationToken);
 
-        response.EnsureSuccessStatusCode();
+            response.EnsureSuccessStatusCode();
 
-        long? totalBytes =
-            response.Content.Headers.ContentLength;
-
-        await using Stream input =
-            await response.Content.ReadAsStreamAsync(
-                cancellationToken);
-
-        await using FileStream output = new(
-            destinationPath,
-            FileMode.Create,
-            FileAccess.Write,
-            FileShare.None,
-            128 * 1024,
-            FileOptions.Asynchronous |
-            FileOptions.SequentialScan);
-
-        byte[] buffer = new byte[128 * 1024];
-        long totalRead = 0;
-
-        while (true)
-        {
-            int read = await input.ReadAsync(
-                buffer,
-                cancellationToken);
-
-            if (read == 0)
+            if (response.RequestMessage?.RequestUri != null &&
+                !response.RequestMessage.RequestUri.Equals(new Uri(update.DownloadUrl)))
             {
-                break;
+                var finalUrl = response.RequestMessage.RequestUri.ToString();
+                if (!finalUrl.Contains("github.com") && !finalUrl.Contains("githubassets.com"))
+                {
+                    throw new InvalidOperationException($"Download redirected to unexpected domain: {finalUrl}");
+                }
             }
 
-            await output.WriteAsync(
-                buffer.AsMemory(0, read),
-                cancellationToken);
+            var totalBytes = response.Content.Headers.ContentLength;
 
-            totalRead += read;
+            await using var input = await response.Content.ReadAsStreamAsync(cancellationToken);
 
-            if (totalBytes is > 0)
+            await using var output = new FileStream(
+                destinationPath,
+                FileMode.Create,
+                FileAccess.Write,
+                FileShare.None,
+                bufferSize: 128 * 1024,
+                options: FileOptions.Asynchronous | FileOptions.SequentialScan);
+
+            var buffer = new byte[128 * 1024];
+            long totalRead = 0;
+
+            while (true)
             {
-                progress?.Report(
-                    Math.Clamp(
-                        (double)totalRead / totalBytes.Value,
-                        0,
-                        1));
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var read = await input.ReadAsync(buffer, cancellationToken);
+
+                if (read == 0)
+                {
+                    break;
+                }
+
+                await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+
+                totalRead += read;
+
+                if (totalBytes > 0)
+                {
+                    progress?.Report(Math.Clamp((double)totalRead / totalBytes.Value, 0, 1));
+                }
             }
+
+            await output.FlushAsync(cancellationToken);
+
+            if (!File.Exists(destinationPath))
+            {
+                throw new FileNotFoundException("Downloaded file not found after write.", destinationPath);
+            }
+
+            var fileInfo = new FileInfo(destinationPath);
+            if (fileInfo.Length == 0)
+            {
+                File.Delete(destinationPath);
+                throw new InvalidOperationException("Downloaded installer is empty.");
+            }
+
+            if (update.ExpectedSha256 != null)
+            {
+                var actualSha256 = await ComputeSha256Async(destinationPath, cancellationToken);
+
+                if (!string.Equals(actualSha256, update.ExpectedSha256, StringComparison.OrdinalIgnoreCase))
+                {
+                    File.Delete(destinationPath);
+                    throw new InvalidOperationException(
+                        $"SHA-256 verification failed. Expected: {update.ExpectedSha256}, Got: {actualSha256}");
+                }
+            }
+
+            progress?.Report(1.0);
+
+            return destinationPath;
         }
-
-        await output.FlushAsync(cancellationToken);
-
-        string actualSha256;
-
-        await using (FileStream verifyStream =
-                     File.OpenRead(destinationPath))
+        catch (HttpRequestException ex)
         {
-            byte[] hash =
-                await SHA256.HashDataAsync(
-                    verifyStream,
-                    cancellationToken);
-
-            actualSha256 =
-                Convert.ToHexString(hash).ToLowerInvariant();
+            if (File.Exists(destinationPath))
+            {
+                try { File.Delete(destinationPath); } catch { }
+            }
+            throw new UpdateDownloadException("Failed to download update. Check your internet connection.", ex);
         }
-
-        if (!string.Equals(
-                actualSha256,
-                update.Sha256,
-                StringComparison.OrdinalIgnoreCase))
+        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
         {
-            File.Delete(destinationPath);
-
-            throw new InvalidOperationException(
-                "Downloaded update failed SHA-256 verification.");
+            if (File.Exists(destinationPath))
+            {
+                try { File.Delete(destinationPath); } catch { }
+            }
+            throw new UpdateDownloadException("Download timed out.", ex);
         }
-
-        progress?.Report(1);
-
-        return destinationPath;
+        catch (OperationCanceledException)
+        {
+            if (File.Exists(destinationPath))
+            {
+                try { File.Delete(destinationPath); } catch { }
+            }
+            throw;
+        }
+        catch (Exception ex) when (ex is not UpdateDownloadException)
+        {
+            if (File.Exists(destinationPath))
+            {
+                try { File.Delete(destinationPath); } catch { }
+            }
+            throw new UpdateDownloadException($"Unexpected error downloading update: {ex.Message}", ex);
+        }
     }
 
-    public static void LaunchInstallerAndExit(
-        string installerPath)
+    public static void LaunchInstallerAndExit(string installerPath)
     {
         if (!OperatingSystem.IsWindows())
         {
-            throw new PlatformNotSupportedException(
-                "Windows installer updates are only supported on Windows.");
+            throw new PlatformNotSupportedException("Windows installer updates are only supported on Windows.");
         }
 
         if (!File.Exists(installerPath))
         {
-            throw new FileNotFoundException(
-                "Downloaded installer was not found.",
-                installerPath);
+            throw new FileNotFoundException("Downloaded installer was not found.", installerPath);
         }
 
-        Process.Start(new ProcessStartInfo
+        var startInfo = new ProcessStartInfo
         {
             FileName = installerPath,
-            UseShellExecute = true
-        });
+            UseShellExecute = true,
+            Verb = "runas"
+        };
+
+        try
+        {
+            Process.Start(startInfo);
+        }
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
+        {
+            throw new InvalidOperationException("Installation requires administrator privileges. The operation was cancelled by the user.", ex);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Failed to launch installer: {ex.Message}", ex);
+        }
 
         if (Avalonia.Application.Current?.ApplicationLifetime
-            is Avalonia.Controls.ApplicationLifetimes
-                .IClassicDesktopStyleApplicationLifetime desktop)
+            is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
         {
             desktop.Shutdown();
         }
+        else
+        {
+            Environment.Exit(0);
+        }
+    }
+
+    private static async Task<string> ComputeSha256Async(string filePath, CancellationToken cancellationToken)
+    {
+        await using var stream = File.OpenRead(filePath);
+        var hash = await SHA256.HashDataAsync(stream, cancellationToken);
+        return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
     private static HttpClient CreateHttpClient()
     {
-        HttpClient client = new();
+        var handler = new HttpClientHandler
+        {
+            AutomaticDecompression = System.Net.DecompressionMethods.GZip | System.Net.DecompressionMethods.Deflate
+        };
 
-        client.DefaultRequestHeaders.UserAgent.ParseAdd(
-            "MyFirstApp/1.0");
+        var client = new HttpClient(handler)
+        {
+            Timeout = HttpTimeout
+        };
 
-        client.DefaultRequestHeaders.Accept.ParseAdd(
-            "application/vnd.github+json");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
+        client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
 
         return client;
     }
+}
+
+public class UpdateCheckException : Exception
+{
+    public UpdateCheckException(string message, Exception? inner = null) : base(message, inner) { }
+}
+
+public class UpdateDownloadException : Exception
+{
+    public UpdateDownloadException(string message, Exception? inner = null) : base(message, inner) { }
 }

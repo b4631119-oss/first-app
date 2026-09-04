@@ -1,0 +1,21 @@
+<Project>
+  <PropertyGroup>
+    <VersionPrefix>1.0.5</VersionPrefix>
+    <VersionSuffix Condition="'$(GITHUB_REF_NAME)' != ''">$(GITHUB_REF_NAME.Replace('v', ''))</VersionSuffix>
+    <Version Condition="'$(VersionSuffix)' != ''">$(VersionPrefix)-$(VersionSuffix)</Version>
+    <Version Condition="'$(VersionSuffix)' == ''">$(VersionPrefix)</Version>
+
+    <AssemblyVersion Condition="'$(Version)' != ''">$([System.Version]::Parse('$(Version)').Major).$([System.Version]::Parse('$(Version)').Minor).$([System.Version]::Parse('$(Version)').Build).0</AssemblyVersion>
+    <FileVersion Condition="'$(Version)' != ''">$([System.Version]::Parse('$(Version)').Major).$([System.Version]::Parse('$(Version)').Minor).$([System.Version]::Parse('$(Version)').Build).0</FileVersion>
+    <InformationalVersion Condition="'$(Version)' != ''">$(Version)</InformationalVersion>
+
+    <Authors>justnpm</Authors>
+    <Product>My First App</Product>
+    <Description>Avalonia Calculator Application</Description>
+    <Copyright>Copyright © 2026</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/b4631119-oss/first-app</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/b4631119-oss/first-app</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+</Project>
