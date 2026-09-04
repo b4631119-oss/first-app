@@ -6,10 +6,9 @@
 
 #define MyAppPublisher "justnpm"
 #define MyAppExeName "MyFirstApp.exe"
-#define MyAppId "{8D5F6C2A-7E91-4B9D-9C12-123456789ABC}"
 
 [Setup]
-AppId={#MyAppId}
+AppId={{8D5F6C2A-7E91-4B9D-9C12-123456789ABC}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
