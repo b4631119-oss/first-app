@@ -1,7 +1,9 @@
 #define MyAppName "My First App"
+
 #ifndef MyAppVersion
 #define MyAppVersion "1.0.0"
 #endif
+
 #define MyAppPublisher "justnpm"
 #define MyAppExeName "MyFirstApp.exe"
 
@@ -19,13 +21,12 @@ OutputBaseFilename=MyFirstApp-Setup-{#MyAppVersion}
 
 Compression=lzma
 SolidCompression=yes
-
 WizardStyle=modern
 
 PrivilegesRequired=admin
 
 [Files]
-Source: "bin\Release\net10.0\win-x64\publish\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
+Source: "publish\win-x64\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 
 [Icons]
 Name: "{autoprograms}\My First App"; Filename: "{app}\{#MyAppExeName}"
