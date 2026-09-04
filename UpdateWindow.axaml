@@ -1,0 +1,51 @@
+<Window
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    x:Class="MyFirstApp.UpdateWindow"
+    Width="460"
+    Height="250"
+    CanResize="False"
+    WindowStartupLocation="CenterOwner"
+    Title="Доступно обновление">
+
+    <StackPanel Margin="28" Spacing="18">
+
+        <TextBlock
+            FontSize="24"
+            FontWeight="Bold"
+            Text="Доступно обновление" />
+
+        <TextBlock
+            x:Name="VersionText"
+            FontSize="16"
+            TextWrapping="Wrap" />
+
+        <ProgressBar
+            x:Name="ProgressBar"
+            Minimum="0"
+            Maximum="1"
+            IsVisible="False"
+            Height="8" />
+
+        <StackPanel
+            Orientation="Horizontal"
+            HorizontalAlignment="Right"
+            Spacing="10">
+
+            <Button
+                x:Name="LaterButton"
+                Content="Позже"
+                Width="100"
+                Click="LaterButton_Click" />
+
+            <Button
+                x:Name="UpdateButton"
+                Content="Обновить"
+                Width="120"
+                Click="UpdateButton_Click" />
+
+        </StackPanel>
+
+    </StackPanel>
+</Window>
+

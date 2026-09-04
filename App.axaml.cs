@@ -1,3 +1,5 @@
+using System;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
@@ -15,9 +17,40 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.MainWindow = new MainWindow();
+            MainWindow mainWindow = new();
+            desktop.MainWindow = mainWindow;
+
+            mainWindow.Opened += async (_, _) =>
+            {
+                await CheckForUpdatesAsync(mainWindow);
+            };
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    private static async Task CheckForUpdatesAsync(
+        MainWindow owner)
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        try
+        {
+            UpdateInfo? update =
+                await UpdateService.CheckForUpdateAsync();
+
+            if (update is null)
+                return;
+
+            UpdateWindow updateWindow =
+                new(update);
+
+            await updateWindow.ShowDialog(owner);
+        }
+        catch
+        {
+            // Обновление не должно ломать запуск приложения.
+        }
     }
 }
